@@ -437,22 +437,26 @@ impl Default for Cpu {
     }
 }
 
-pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_timer: &mut crate::timer::Timer, gb_mem: &mut mem::Mem) {
+pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
     let (int_e, int_f) = (gb_mem.read(PINT_E), gb_mem.read(PINT_F));
-    if (gb_cpu.ime == 1 || gb_cpu.halt != 0) && (int_e & int_f) != 0 {
+    if gb_cpu.halt != 0 && (int_e & int_f) != 0 {
         gb_cpu.halt = 0;
+    }
+    if gb_cpu.ime == 1 && (int_e & int_f) != 0 {
         gb_cpu.ime = 0;
 
         let n = (int_e & int_f).trailing_zeros();
-        gb_mem.write(PINT_F, int_f & !(1 << n));
+        if n < 5 {
+            gb_mem.write(PINT_F, int_f & !(1 << n));
 
-        gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
-        gb_mem.write(gb_cpu.sp, (gb_cpu.pc >> 8) as u8);
-        gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
-        gb_mem.write(gb_cpu.sp, gb_cpu.pc as u8);
-        gb_cpu.pc = 0x40 | ((n as u16) << 3);
-        gb_cpu.clk += 12;
-        gb_timer.inc(&gb_cpu.clk, gb_mem);
+            gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
+            gb_mem.write(gb_cpu.sp, (gb_cpu.pc >> 8) as u8);
+            gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
+            gb_mem.write(gb_cpu.sp, gb_cpu.pc as u8);
+            gb_cpu.pc = 0x40 | ((n as u16) << 3);
+            gb_cpu.clk += 12;
+            return;
+        }
     }
 
     if gb_cpu.ime == 2 {

@@ -17,44 +17,14 @@ enum GpuMode {
 pub struct Gpu {
     mode: GpuMode,
     clk: u64,
-    switchbg: bool,
-    switchlcd: bool,
-    switchsprite: bool,
-    switchwindow: bool,
-    sprite2x: bool,
-    bgmap: u16,
-    bgtile: u16,
     line: u8,
-    scx: u8,
-    scy: u8,
-    wx: u8,
-    wy: u8,
     pub canvas: sdl2::render::Canvas<sdl2::video::Window>,
     pub ctx: sdl2::Sdl
 }
 
 impl Gpu {
-    fn lcd_control_reg(&mut self, gb_mem: &Mem) {
-        let val = gb_mem.read(LCD_CTLP);
-
-        self.switchbg = val & 0x1 != 0;
-        self.switchsprite = val & 0x2 != 0;
-        self.sprite2x = val & 0x4 != 0;
-        self.bgtile = if val & 0x10 != 0 { 0x8000 } else {0x8800};
-        self.switchwindow = (val & 0x20 != 0) && self.wx <= self.line;
-        let msk = if self.switchwindow { 0x40 } else { 0x8 };
-        self.bgmap = if val & msk != 0 { 0x9C00 } else { 0x9800 };
-        self.switchlcd = val & 0x80 != 0;
-    }
-
-
     pub fn update(&mut self, gb_mem: &Mem) {
-        self.scy = gb_mem.read(SCYP);
-        self.scx = gb_mem.read(SCXP);
         self.line = gb_mem.read(SCLINEP);
-        self.wy = gb_mem.read(WYP);
-        self.wx = gb_mem.read(WXP);
-        self.lcd_control_reg(gb_mem);
     }
 
     fn get_color(&self, gb_mem: &Mem, cn: u8, addr: u16) -> Color {
@@ -75,29 +45,36 @@ impl Gpu {
     }
 
     pub fn scanline(&mut self, gb_mem: &mut Mem) {
-        if self.switchbg {
-            let y = if self.switchwindow {
-                self.line - self.wy
+        let val = gb_mem.read(LCD_CTLP);
+        if val & 0x1 != 0 {
+            let wy = gb_mem.read(WYP);
+            let sw = (val & 0x20 != 0) && wy <= self.line;
+            let y = if sw {
+                self.line - wy
             } else {
-                (self.scy as u16 + self.line as u16) as u8
+                (gb_mem.read(SCYP) as u16 + self.line as u16) as u8
             };
 
             for i in 0..160 {
-                let x = if self.switchwindow && i >= self.wx {
-                    i - self.wx
+                let wx = gb_mem.read(WXP);
+                let x = if sw && i >= wx {
+                    i - wx
                 } else {
-                    i.wrapping_add(self.scx)
+                    i.wrapping_add(gb_mem.read(SCXP))
                 };
 
                 let tx = (x as u16)/8;
                 let ty = ((y as u16)/8) * 32;
-                let tnp = self.bgmap + tx + ty;
+                let msk = if sw { 0x40 } else { 0x8 };
+                let bgmap = if val & msk != 0 { 0x9C00 } else { 0x9800 };
+                let tnp = bgmap + tx + ty;
                 let tn = gb_mem.read(tnp);
 
-                let tp = if self.bgtile == 0x8000 {
-                    self.bgtile + (tn as u16)*16
+                let bgtile = if val & 0x10 != 0 { 0x8000 } else {0x8800};
+                let tp = if bgtile == 0x8000 {
+                    bgtile + (tn as u16)*16
                 } else {
-                    self.bgtile + ((tn as i16 + 128)*16) as u16
+                    bgtile + ((tn as i16 + 128)*16) as u16
                 };
 
                 let l = (y as u16 % 8) * 2;
@@ -115,12 +92,13 @@ impl Gpu {
             }
         }
 
-        if self.switchsprite {
+        if val & 0x2 != 0 {
+            let s2x = val & 0x4 != 0;
             for i in 0..40 {
                 let addr = SPRITE_BASE + (i as u16)*4;
                 let y = gb_mem.read(addr) as i32 - 16;
                 let x = gb_mem.read(addr + 1) as i32 - 8;
-                let tp = gb_mem.read(addr + 2) as u16 & (0xFF - self.sprite2x as u16);
+                let tp = gb_mem.read(addr + 2) as u16 & (0xFF - s2x as u16);
                 let attr = gb_mem.read(addr + 3);
 
                 if attr & 0x80 != 0 {
@@ -129,9 +107,9 @@ impl Gpu {
 
                 let fy = attr & 0x40 != 0;
                 let fx = attr & 0x20 != 0;
-                let sy = self.sprite2x as u8 * 8;
+                let sy = s2x as u8 * 8;
 
-                if !(y <= self.line as i32 && (y + 8) > self.line as i32) {
+                if !(y <= self.line as i32 && (y+8) > self.line as i32) {
                     continue
                 }
 
@@ -174,18 +152,7 @@ impl Default for Gpu {
         let mut gp = Gpu {
             mode: GpuMode::OAM,
             clk: 0,
-            bgmap: 0,
-            bgtile: 0,
-            switchbg: false,
-            switchlcd: false,
-            switchsprite: false,
-            sprite2x: false,
-            switchwindow: false,
             line: 0,
-            scx: 0,
-            scy: 0,
-            wx: 0,
-            wy: 0,
             canvas: ctx.video().unwrap()
                 .window("Gameboy Emu", WIDTH as u32, HEIGHT as u32)
                 .position_centered()
@@ -201,16 +168,17 @@ impl Default for Gpu {
     }
 }
 
-pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
-    gb_gpu.clk = clks;
+pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: &crate::cpu::Clock) {
+    gb_gpu.clk += clks.prev as u64;
     gb_gpu.update(gb_mem);
     let mut int_f = gb_mem.read(PINT_F);
-    let ints = gb_mem.read(GPU_INTS);
+    let mut ints = gb_mem.read(GPU_INTS);
 
     match &gb_gpu.mode {
         GpuMode::OAM => {
             if gb_gpu.clk >= 80 {
                 gb_gpu.mode = GpuMode::VRAM;
+                ints |= 0x3;
                 gb_gpu.clk = 0;
             }
         }
@@ -219,41 +187,36 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
             if gb_gpu.clk >= 172 {
                 gb_gpu.clk = 0;
                 gb_gpu.mode = GpuMode::HBLANK;
-                if int_f & 0x8 != 0 {
+                if ints & 0x8 != 0 {
                     int_f |= 0x2;
-                    gb_mem.write(PINT_F, int_f)
                 }
 
-                gb_gpu.scanline(gb_mem);
+                ints &= !0x7;
+                let lyc_int = ints & 0x40;
+                if gb_mem.read(LYCP) == gb_gpu.line {
+                    if lyc_int != 0 {
+                        int_f |= 0x2;
+                    }
+                    ints |= 0x7;
+                }
             }
         }
 
         GpuMode::HBLANK => {
             if gb_gpu.clk >= 204 {
+                gb_gpu.scanline(gb_mem);
                 gb_gpu.clk = 0;
                 gb_mem.write(SCLINEP, gb_gpu.line+1);
-                if ints & 0x40 != 0 && gb_gpu.line+1 == gb_mem.read(LYCP) {
-                    int_f |= 0x2;
-                    gb_mem.write(PINT_F, int_f);
-                }
-
-                // We aren't incrementing gb_gpu.line so 144-1.
-                // line is updated in the next frame cycle anyways
-                if gb_gpu.line == 142 {
+                gb_gpu.line += 1;
+                if gb_gpu.line == 144 {
                     gb_gpu.mode = GpuMode::VBLANK;
+                    ints &= !0x3;
+                    ints |= 0x1;
                     int_f |= 0x1;
-                    gb_mem.write(PINT_F, int_f);
-                    if ints & 0x10 != 0 {
-                        int_f |= 0x2;
-                        gb_mem.write(PINT_F, int_f);
-                    }
-                    gb_gpu.canvas.present();
                 } else {
                     gb_gpu.mode = GpuMode::OAM;
-                    if int_f & 0x20 != 0 {
-                        int_f |= 0x2;
-                        gb_mem.write(PINT_F, int_f);
-                    }
+                    ints &= !0x3;
+                    ints |= 0x2;
                 }
             }
         }
@@ -262,17 +225,20 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
             if gb_gpu.clk >= 456 {
                 gb_gpu.clk = 0;
                 gb_mem.write(SCLINEP, gb_gpu.line+1);
+                gb_gpu.line += 1;
 
-                if gb_gpu.line > 152 {
+                if gb_gpu.line == 154 {
                     gb_gpu.mode = GpuMode::OAM;
-                    if int_f & 0x20 != 0 {
-                        int_f |= 0x2;
-                        gb_mem.write(PINT_F, int_f);
-                    }
+                    gb_gpu.canvas.present();
                     gb_gpu.line = 0;
                     gb_mem.write(SCLINEP, 0);
+                    ints &= !0x3;
+                    ints |= 0x2;
                 }
             }
         }
     }
+
+    gb_mem.write(GPU_INTS, ints);
+    gb_mem.write(PINT_F, int_f)
 }

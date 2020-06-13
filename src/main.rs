@@ -28,8 +28,9 @@ fn main() -> io::Result<()> {
     let mut gb_mem = mem::Mem::default();
     let mut gb_input = input::Input::default();
     let mut gb_timer = timer::Timer::default();
-    load_rom(&mut gb_mem, "test_roms/ttt.gb")?;
+    load_rom(&mut gb_mem, "test_roms/instr_timing.gb")?;
     gb_mem.io[0] = 255;
+    gb_mem.io[41] = 0x80;
     gb_mem.write(consts::CTLTTP, 3);
     gb_mem.write(consts::JOYP, 255);
     gb_exec(&mut gb_cpu, &mut gb_gpu, &mut gb_input, &mut gb_timer, &mut gb_mem).unwrap();
@@ -37,14 +38,15 @@ fn main() -> io::Result<()> {
 
 }
 
-fn gb_frame(gb_cpu: &mut cpu::Cpu, gb_input: &mut input::Input, gb_timer: &mut timer::Timer, gb_mem: &mut mem::Mem) {
+fn gb_frame(gb_cpu: &mut cpu::Cpu, gb_gpu: &mut gpu::Gpu, gb_input: &mut input::Input, gb_timer: &mut timer::Timer, gb_mem: &mut mem::Mem) {
     let target = gb_cpu.clk.val + 70224;
     while gb_cpu.clk.val < target && gb_cpu.stop == 0 {
-        cpu::cpu_cycle(gb_cpu, gb_timer, gb_mem);
-        gb_timer.inc(&gb_cpu.clk, gb_mem);
+        cpu::cpu_cycle(gb_cpu, gb_mem);
+        gpu::gpu_cycle(gb_gpu, gb_mem, &gb_cpu.clk);
         if gb_mem.input_update {
             gb_input.update(gb_mem);
         }
+        gb_timer.inc(&gb_cpu.clk, gb_mem);
     }
 }
 
@@ -63,8 +65,8 @@ fn gb_exec(gb_cpu: &mut cpu::Cpu, gb_gpu: &mut gpu::Gpu, gb_input: &mut input::I
                 _ => {}
             }
         }
-        gb_frame(gb_cpu, gb_input, gb_timer, gb_mem);
-        gpu::gpu_cycle(gb_gpu, gb_mem, gb_cpu.clk.val);
+        gb_frame(gb_cpu, gb_gpu, gb_input, gb_timer, gb_mem);
+        //gb_gpu.canvas.present();
         frame += 1.;
         //std::thread::sleep(std::time::Duration::from_millis(1));
     }

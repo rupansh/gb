@@ -50,7 +50,7 @@ impl Mem {
                 if addr == 0xFF04 {
                     self.io[4] = 0; // divide timer reg
                 } else if addr == 0xFF07 {
-                    self.io[7] = val;
+                    self.io[7] = val & 0x7;
                 } else {
                     self.io[addr - 0xFF00] = val;
                 }
