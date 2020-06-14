@@ -1,35 +1,39 @@
-use crate::cpu::Clock;
 use crate::consts::*;
 use crate::mem::Mem;
 
 
 pub struct Timer {
-    div: u16,
-    tima: u16
+    cnt: u32,
+    div: u32,
+    prev: u64
 }
 
 impl Default for Timer {
     fn default() -> Timer {
         Timer {
+            cnt: 0,
             div: 0,
-            tima: 0
+            prev: 0
         }
     }
 }
 
 impl Timer {
-    pub fn inc(&mut self, cp_clks: &Clock, gb_mem: &mut Mem) {
-        self.div += cp_clks.prev as u16;
-        if self.div >= 0xff {
-            self.div -= 0xff;
-            let div = gb_mem.read(DIVTP).wrapping_add(1);
+    pub fn inc(&mut self, cp_clks: u64, gb_mem: &mut Mem) {
+        let tclk = cp_clks - self.prev;
+        self.prev = cp_clks;
+        self.div += tclk as u32;
+        if self.div >= 255 {
+            let mut div = gb_mem.read(DIVTP);
+            div = div.wrapping_add(1);
             gb_mem.write(DIVTP, div);
+            self.div -= 255;
         }
 
-        let tac = gb_mem.read(CTLTTP);
-        if tac & 0x4 != 0{
-            self.tima += cp_clks.prev as u16;
-            let freq = match tac & 0x3 {
+        let ctrl = gb_mem.read(CTLTTP);
+        if ctrl as i8 - 0x4 > 0 {
+            self.cnt += tclk as u32;
+            let lim = match ctrl & 0x3 {
                 0 => 1024,
                 1 => 16,
                 2 => 64,
@@ -37,17 +41,16 @@ impl Timer {
                 _ => panic!("BRUH")
             };
 
-            while self.tima >= freq {
-                self.tima -= freq;
-                let tima = match gb_mem.read(CNTTP).checked_add(1) {
-                    Some(s) => s,
+            while self.cnt >= lim {
+                match gb_mem.read(CNTTP).checked_add(1) {
+                    Some(s) => gb_mem.write(CNTTP, s),
                     None => {
-                        let intf = gb_mem.read(PINT_F) | 0x4;
-                        gb_mem.write(PINT_F, intf);
-                        gb_mem.read(MODTP)
+                        gb_mem.write(CNTTP, gb_mem.read(MODTP));
+                        let int_f = gb_mem.read(PINT_F);
+                        gb_mem.write(PINT_F, int_f | 4);
                     }
-                };
-                gb_mem.write(CNTTP, tima);
+                }
+                self.cnt -= lim;
             }
         }
     }

@@ -1,7 +1,7 @@
 WIP LUL
 
 // TODO
-- Fix timings
-- Fix Interrupts
-- Fix Sprite related stuff???
+- Make timings more accurate
+- Fix GPU clock???
+- Fix Tetris sprites
 - Fix Input related bugs???

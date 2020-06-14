@@ -25,7 +25,7 @@ impl Input {
             Keycode::D => self.update_row(KEY_R, kp, true),
             _ => {}
         };
-
+    
         self.update(gb_mem);
     }
 
@@ -50,7 +50,7 @@ impl Input {
         gb_mem.input_update = false;
     }
 
-    pub fn update_row(&mut self, key: u8, kp: bool, r0: bool) {
+    fn update_row(&mut self, key: u8, kp: bool, r0: bool) {
         if r0 {
             if kp {
                 self.r0 &= !key;

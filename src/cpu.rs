@@ -2,24 +2,6 @@ use crate::consts::*;
 use crate::mem;
 
 
-#[derive(Default)]
-pub struct Clock {
-    pub val: u64,
-    pub prev: u8,
-}
-
-// It was already too late by the time i realized i had to store previous value for timers
-// Kind of a hack but it shouldn't cause much confusion
-// RIGHT?
-impl std::ops::AddAssign<u8> for Clock {
-    fn add_assign(&mut self, other: u8) {
-        *self = Self {
-            val: self.val + other as u64,
-            prev: other
-        }
-    }
-}
-
 pub struct Cpu {
     pub regs: [u8; 8], // Regs A-F, H,L
     pub sp: u16, // Stack pointer
@@ -28,7 +10,7 @@ pub struct Cpu {
     pub alt_c: u8, // alt cycles
     pub halt: u8, // HALT mode
     pub stop: u8, // STOP mode
-    pub clk: Clock, // clock counter
+    pub clk: u64, // clock counter
 }
 
 impl Cpu {
@@ -57,16 +39,16 @@ impl Cpu {
         self.clk += 4;
         self.regs[rl] = gb_mem.read(self.pc);
         self.clk += 4;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         self.regs[rh] = gb_mem.read(self.pc);
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         self.clk += 4
     }
 
     pub fn ld_8(&mut self, gb_mem: &mem::Mem, r: usize) {
         self.clk += 4;
         self.regs[r] = gb_mem.read(self.pc);
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         self.clk += 4;
     }
 
@@ -94,7 +76,7 @@ impl Cpu {
     pub fn inc_8(&mut self, r: usize) {
         self.set_flag(false, FL_N);
         self.set_flag((self.regs[r] & 0xF) == 0xF, FL_H);
-        self.regs[r] += 1;
+        self.regs[r] = self.regs[r].wrapping_add(1);
         self.set_flag(self.regs[r] == 0, FL_Z);
         self.clk += 4;
     }
@@ -102,7 +84,7 @@ impl Cpu {
     pub fn dec_8(&mut self, r: usize) {
         self.set_flag(true, FL_N);
         self.set_flag((self.regs[r] & 0xF) == 0x0, FL_H);
-        self.regs[r] -= 1;
+        self.regs[r] = self.regs[r].wrapping_sub(1);
         self.set_flag(self.regs[r] == 0, FL_Z);
         self.clk += 4;
     }
@@ -120,7 +102,7 @@ impl Cpu {
         self.set_flag(false, FL_N);
         let tmp: u32 = self.regs[A] as u32;
         self.set_flag((tmp & 0xF) + ((self.regs[r] as u32) & 0xF) > 0xF, FL_H);
-        self.regs[A] += self.regs[r];
+        self.regs[A] = self.regs[A].wrapping_add(self.regs[r]);
         self.set_flag(self.regs[A] == 0, FL_Z);
         self.set_flag(tmp > self.regs[A] as u32, FL_C);
         self.clk += 4;
@@ -150,7 +132,7 @@ impl Cpu {
         self.regs[F] = FL_N;
         self.set_flag((self.regs[A] & 0xF) < (self.regs[r] & 0xF), FL_H);
         self.set_flag(self.regs[A] < self.regs[r], FL_C);
-        self.regs[A] -= self.regs[r];
+        self.regs[A] = self.regs[A].wrapping_sub(self.regs[r]);
         self.set_flag(self.regs[A] == 0, FL_Z);
         self.clk += 4
     }
@@ -240,9 +222,9 @@ impl Cpu {
             self.clk += 4;
             let mut tmp: u32 = gb_mem.read(self.pc) as u32;
             self.clk += 4;
-            self.pc += 1;
+            self.pc = self.pc.wrapping_add(1);
             tmp |= (gb_mem.read(self.pc) as u32) << 8;
-            self.pc += 1;
+            self.pc = self.pc.wrapping_add(1);
             self.clk += 8;
             self.sp = (self.sp as i32 - 1) as u16;
             gb_mem.write(self.sp, ((self.pc & 0xFF00) >> 8) as u8);
@@ -278,9 +260,9 @@ impl Cpu {
             self.clk += 4;
             let mut tmp: u32 = gb_mem.read(self.pc) as u32;
             self.clk += 4;
-            self.pc += 1;
+            self.pc = self.pc.wrapping_add(1);
             tmp |= (gb_mem.read(self.pc) as u32) << 8;
-            self.pc += 1;
+            self.pc = self.pc.wrapping_add(1);
             self.clk += 4;
             self.pc = tmp as u16;
             self.clk += 4;
@@ -294,11 +276,11 @@ impl Cpu {
         if cond {
             self.clk += 4;
             let tmp = gb_mem.read(self.pc) as u32;
-            self.pc += 1;
+            self.pc = self.pc.wrapping_add(1);
             self.pc = ((tmp as i8) as i32 + self.pc as i32) as u16;
             self.clk += 8;
         } else {
-            self.pc += 1;
+            self.pc = self.pc.wrapping_add(1);
             self.clk += 8;
         }
     }
@@ -426,7 +408,7 @@ impl Default for Cpu {
             alt_c: 0,
             halt: 0,
             stop: 0,
-            clk: Clock::default(),
+            clk: 0,
         };
         gb_cpu.set_hilo(A, F, 0x01B0);
         gb_cpu.set_hilo(B, C, 0x0013);
@@ -505,9 +487,9 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             let mut tmp: u32 = gb_mem.read(gb_cpu.pc) as u32;
             gb_cpu.clk += 4;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             tmp |= (gb_mem.read(gb_cpu.pc) as u32) << 8;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.clk += 4;
             gb_mem.write(tmp as u16, gb_cpu.sp as u8);
             tmp += 1;
@@ -540,7 +522,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             if gb_mem.read(gb_cpu.pc) != 0 {
                 println!("BAD STOP!");
             }
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.clk += 4;
             gb_cpu.stop = 1;
             return;
@@ -653,9 +635,9 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             let tmp = gb_mem.read(gb_cpu.pc);
             gb_cpu.clk += 4;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             let tmp2 = gb_mem.read(gb_cpu.pc);
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.clk += 4;
             gb_cpu.sp = (tmp2 as u16) << 8 | tmp as u16;
         }
@@ -668,7 +650,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         }
         0x33 => // INC SP - 2
         {
-            gb_cpu.sp += 1;
+            gb_cpu.sp = gb_cpu.sp.wrapping_add(1);
             gb_cpu.clk += 8;
         }
         0x34 => // INC [HL] - 3
@@ -690,7 +672,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             gb_cpu.set_flag(true, FL_N);
             gb_cpu.set_flag((tmp & 0xF) == 0x0, FL_H);
-            tmp = (tmp - 1) & 0xFF;
+            tmp = tmp.wrapping_sub(1);
             gb_cpu.set_flag(tmp == 0, FL_Z);
             gb_mem.write(gb_cpu.get_hilo(H, L), tmp as u8);
             gb_cpu.clk += 4;
@@ -699,7 +681,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         {
             gb_cpu.clk += 4;
             let tmp: u32 = gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.clk += 4;
             gb_mem.write(gb_cpu.get_hilo(H, L), tmp as u8);
             gb_cpu.clk += 4;
@@ -1021,7 +1003,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             let tmp: u32 = gb_cpu.regs[A] as u32;
             let tmp2: u32 =  gb_mem.read(gb_cpu.get_hilo(H, L)) as u32;
             gb_cpu.set_flag(((tmp & 0xF) + (tmp2 & 0xF)) > 0xF, FL_H);
-            gb_cpu.regs[A] += tmp2 as u8;
+            gb_cpu.regs[A] = gb_cpu.regs[A].wrapping_add(tmp2 as u8);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.set_flag(tmp > gb_cpu.regs[A] as u32, FL_C);
             gb_cpu.clk += 4;
@@ -1031,7 +1013,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.set_flag(false, FL_N);
             gb_cpu.set_flag((gb_cpu.regs[A] & (1 << 3)) != 0, FL_H);
             gb_cpu.set_flag((gb_cpu.regs[A]) & (1 << 7) != 0, FL_C);
-            gb_cpu.regs[A] += gb_cpu.regs[A];
+            gb_cpu.regs[A] = gb_cpu.regs[A].wrapping_mul(2);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.clk += 4;
         }
@@ -1093,7 +1075,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.regs[F] = FL_N;
             gb_cpu.set_flag((gb_cpu.regs[A] & 0xF) < (tmp & 0xF) as u8, FL_H);
             gb_cpu.set_flag(gb_cpu.regs[A] < tmp as u8, FL_C);
-            gb_cpu.regs[A] -= tmp as u8;
+            gb_cpu.regs[A] = gb_cpu.regs[A].wrapping_sub(tmp as u8);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.clk += 4;
         }
@@ -1266,9 +1248,9 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.set_flag(false, FL_N);
             let tmp: u32 = gb_cpu.regs[A] as u32;
             let tmp2: u32 = gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.set_flag(((tmp & 0xF) + (tmp2 & 0xF)) > 0xF, FL_H);
-            gb_cpu.regs[A] += tmp2 as u8;
+            gb_cpu.regs[A] = gb_cpu.regs[A].wrapping_add(tmp2 as u8);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.set_flag(tmp > gb_cpu.regs[A] as u32, FL_C);
             gb_cpu.clk += 4;
@@ -1895,7 +1877,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             gb_cpu.set_flag(false, FL_N);
             let tmp: u32 = gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             let tmp2: u32 = gb_cpu.regs[A] as u32 + tmp + gb_cpu.get_flag(FL_C) as u32;
             gb_cpu.set_flag(((gb_cpu.regs[A] & 0xF) + (tmp & 0xF) as u8 + gb_cpu.get_flag(FL_C) as u8) > 0xF, FL_H);
             gb_cpu.set_flag(tmp2 > 0xFF, FL_C);
@@ -1920,12 +1902,12 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         0xD6 => // SUB A,nn - 2
         {
             gb_cpu.clk += 4;
-            let tmp: u32 = gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
+            let tmp = gb_mem.read(gb_cpu.pc).wrapping_sub(0) as u32;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.regs[F] = FL_N;
             gb_cpu.set_flag((gb_cpu.regs[A] & 0xF) < (tmp & 0xF) as u8, FL_H);
             gb_cpu.set_flag((gb_cpu.regs[A] as u32) < tmp, FL_C);
-            gb_cpu.regs[A] = (gb_cpu.regs[A] as u32 - tmp) as u8;
+            gb_cpu.regs[A] = gb_cpu.regs[A].wrapping_sub(tmp as u8);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.clk += 4;
         }
@@ -1958,8 +1940,8 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         {
             gb_cpu.clk += 4;
             let tmp2: u32 = gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
-            let tmp: u32 = gb_cpu.regs[A] as u32 - tmp2 - ((gb_cpu.get_flag(FL_C)) as u32);
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
+            let tmp: u32 = (gb_cpu.regs[A] as u32).wrapping_sub(tmp2).wrapping_sub((gb_cpu.get_flag(FL_C)) as u32);
             gb_cpu.regs[F] = if tmp & !0xFF != 0 {
                 FL_C
             } else {
@@ -1979,7 +1961,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         {
             gb_cpu.clk += 4;
             let tmp: u32 = 0xFF00 + gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.clk += 4;
             gb_mem.write(tmp as u16, gb_cpu.regs[A]);
             gb_cpu.clk += 4;
@@ -2004,7 +1986,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.set_flag(false, FL_N | FL_C);
             gb_cpu.set_flag(true, FL_H);
             gb_cpu.regs[A] &= gb_mem.read(gb_cpu.pc);
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.clk += 4;
         }
@@ -2015,7 +1997,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             // Expand sign
             let tmp: u32 = gb_mem.read(gb_cpu.pc) as i8 as i16 as u16 as u32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.regs[F] = 0;
             gb_cpu.set_flag((gb_cpu.sp & 0x00FF) + (tmp & 0x00FF) as u16 > 0x00FF, FL_C);
             gb_cpu.set_flag((gb_cpu.sp & 0x000F) + (tmp & 0x000F) as u16 > 0x000F, FL_H);
@@ -2050,7 +2032,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             gb_cpu.set_flag(false, FL_N | FL_C | FL_H);
             gb_cpu.regs[A] ^= gb_mem.read(gb_cpu.pc);
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.clk += 4;
         }
@@ -2061,7 +2043,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         {
             gb_cpu.clk += 4;
             let tmp: u32 = 0xFF00 + gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.clk += 4;
             gb_cpu.regs[A] = gb_mem.read(tmp as u16);
             gb_cpu.clk += 4;
@@ -2091,7 +2073,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             gb_cpu.set_flag(false, FL_N | FL_C | FL_H);
             gb_cpu.regs[A] |= gb_mem.read(gb_cpu.pc);
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.set_flag(gb_cpu.regs[A] == 0, FL_Z);
             gb_cpu.clk += 4;
         }
@@ -2101,7 +2083,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         {
             gb_cpu.clk += 4;
             let tmp: i32 = gb_mem.read(gb_cpu.pc) as i8 as i32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             let res = gb_cpu.sp as i32 + tmp;
             gb_cpu.set_hilo(H, L, res as u16);
             gb_cpu.regs[F] = 0;
@@ -2119,9 +2101,9 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             let mut tmp: u32 = gb_mem.read(gb_cpu.pc) as u32;
             gb_cpu.clk += 4;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             tmp |= (gb_mem.read(gb_cpu.pc) as u32) << 8;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             gb_cpu.clk += 4;
             gb_cpu.regs[A] = gb_mem.read(tmp as u16);
             gb_cpu.clk += 4;
@@ -2140,7 +2122,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.clk += 4;
             gb_cpu.set_flag(true, FL_N);
             let tmp: u32 = gb_mem.read(gb_cpu.pc) as u32;
-            gb_cpu.pc += 1;
+            gb_cpu.pc = gb_cpu.pc.wrapping_add(1);
             let tmp2: u32 = gb_cpu.regs[A] as u32;
             gb_cpu.set_flag((tmp2 & 0xF) < (tmp & 0xF), FL_H);
             gb_cpu.set_flag(tmp2 < tmp, FL_C);

@@ -18,6 +18,7 @@ pub struct Gpu {
     mode: GpuMode,
     clk: u64,
     line: u8,
+    pub frames: f64,
     pub canvas: sdl2::render::Canvas<sdl2::video::Window>,
     pub ctx: sdl2::Sdl
 }
@@ -119,7 +120,7 @@ impl Gpu {
                     (self.line as i32 - y) as u16
                 };
 
-                let sp = 0x8000 + tp*16 + line*2;
+                let sp = (0x8000 + tp as u32 * 16 + line as u32 *2) as u16;
                 let l_sprite = gb_mem.read(sp);
                 let h_sprite = gb_mem.read(sp + 1);
 
@@ -137,7 +138,7 @@ impl Gpu {
                         continue
                     }
 
-                    let pix = (x as u16 + (7 -j) as u16) as u8;
+                    let pix = x.wrapping_add(7-j);
                     self.canvas.set_draw_color(col);
                     self.canvas.draw_point(sdl2::rect::Point::new(pix as i32,  self.line as i32)).unwrap_or_default();
                 }
@@ -153,6 +154,7 @@ impl Default for Gpu {
             mode: GpuMode::OAM,
             clk: 0,
             line: 0,
+            frames: 0.,
             canvas: ctx.video().unwrap()
                 .window("Gameboy Emu", WIDTH as u32, HEIGHT as u32)
                 .position_centered()
@@ -168,8 +170,8 @@ impl Default for Gpu {
     }
 }
 
-pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: &crate::cpu::Clock) {
-    gb_gpu.clk += clks.prev as u64;
+pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
+    gb_gpu.clk = clks;
     gb_gpu.update(gb_mem);
     let mut int_f = gb_mem.read(PINT_F);
     let mut ints = gb_mem.read(GPU_INTS);
@@ -230,6 +232,7 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: &crate::cpu::Clock) {
                 if gb_gpu.line == 154 {
                     gb_gpu.mode = GpuMode::OAM;
                     gb_gpu.canvas.present();
+                    gb_gpu.frames += 1.;
                     gb_gpu.line = 0;
                     gb_mem.write(SCLINEP, 0);
                     ints &= !0x3;
