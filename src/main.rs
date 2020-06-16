@@ -28,9 +28,7 @@ fn main() -> io::Result<()> {
     let mut gb_mem = mem::Mem::default();
     let mut gb_input = input::Input::default();
     let mut gb_timer = timer::Timer::default();
-    load_rom(&mut gb_mem, "test_roms/opus5.gb")?;
-    gb_mem.io[0] = 255;
-    gb_mem.io[41] = 0x80;
+    load_rom(&mut gb_mem, "test_roms/ttt.gb")?;
     gb_mem.write(consts::CTLTTP, 3);
     gb_mem.write(consts::JOYP, 255);
     gb_exec(&mut gb_cpu, &mut gb_gpu, &mut gb_input, &mut gb_timer, &mut gb_mem).unwrap();

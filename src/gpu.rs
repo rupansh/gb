@@ -18,6 +18,7 @@ pub struct Gpu {
     mode: GpuMode,
     clk: u64,
     line: u8,
+    prev: u64,
     pub frames: f64,
     pub canvas: sdl2::render::Canvas<sdl2::video::Window>,
     pub ctx: sdl2::Sdl
@@ -155,6 +156,7 @@ impl Default for Gpu {
             clk: 0,
             line: 0,
             frames: 0.,
+            prev: 0,
             canvas: ctx.video().unwrap()
                 .window("Gameboy Emu", WIDTH as u32, HEIGHT as u32)
                 .position_centered()
@@ -171,7 +173,8 @@ impl Default for Gpu {
 }
 
 pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
-    gb_gpu.clk = clks;
+    gb_gpu.clk += clks - gb_gpu.prev;
+    gb_gpu.prev = clks;
     gb_gpu.update(gb_mem);
     let mut int_f = gb_mem.read(PINT_F);
     let mut ints = gb_mem.read(GPU_INTS);
@@ -181,13 +184,13 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
             if gb_gpu.clk >= 80 {
                 gb_gpu.mode = GpuMode::VRAM;
                 ints |= 0x3;
-                gb_gpu.clk = 0;
+                gb_gpu.clk %= 80;
             }
         }
 
         GpuMode::VRAM => {
             if gb_gpu.clk >= 172 {
-                gb_gpu.clk = 0;
+                gb_gpu.clk %= 172;
                 gb_gpu.mode = GpuMode::HBLANK;
                 if ints & 0x8 != 0 {
                     int_f |= 0x2;
@@ -207,7 +210,7 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
         GpuMode::HBLANK => {
             if gb_gpu.clk >= 204 {
                 gb_gpu.scanline(gb_mem);
-                gb_gpu.clk = 0;
+                gb_gpu.clk %= 204;
                 gb_mem.write(SCLINEP, gb_gpu.line+1);
                 gb_gpu.line += 1;
                 if gb_gpu.line == 144 {
@@ -225,7 +228,7 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
 
         GpuMode::VBLANK => {
             if gb_gpu.clk >= 456 {
-                gb_gpu.clk = 0;
+                gb_gpu.clk %= 456;
                 gb_mem.write(SCLINEP, gb_gpu.line+1);
                 gb_gpu.line += 1;
 

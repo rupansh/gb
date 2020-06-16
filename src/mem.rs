@@ -63,7 +63,7 @@ impl Mem {
 
 impl Default for Mem {
     fn default() -> Mem {
-        Mem {
+        let mut m = Mem {
             rom: [0; 16384],
             rom_bank: [0; 16384],
             vram: [0; 8192],
@@ -73,6 +73,27 @@ impl Default for Mem {
             io: [0; 128],
             zero_pg: [0; 128],
             input_update: false,
-        }
+        };
+        m.io[0x10] = 0x80;
+        m.io[0x11] = 0xBF;
+        m.io[0x12] = 0xF3;
+        m.io[0x14] = 0xBF;
+        m.io[0x16] = 0x3F;
+        m.io[0x19] = 0xBF;
+        m.io[0x1A] = 0x7F;
+        m.io[0x1B] = 0xFF;
+        m.io[0x1C] = 0x9F;
+        m.io[0x1E] = 0xBF;
+        m.io[0x20] = 0xFF;
+        m.io[0x23] = 0xBF;
+        m.io[0x24] = 0x77;
+        m.io[0x25] = 0xF3;
+        m.io[0x26] = 0xF1;
+        m.io[0x40] = 0x91;
+        m.io[0x47] = 0xFC;
+        m.io[0x48] = 0xFF;
+        m.io[0x49] = 0xFF;
+        m.io[0x4D] = 0xFF;
+        return m;
     }
 }
