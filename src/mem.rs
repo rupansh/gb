@@ -41,12 +41,6 @@ impl Mem {
                 self.input_update = true;
             }
             0xFF01..=0xFF7F => {
-                if addr == 0xFF02 {
-                    if val == 0x81 {
-                        let intf = self.read(0xFF0F);
-                        self.write(0xFF0F, intf | 0x8);
-                    }
-                }
                 if addr == 0xFF04 {
                     self.io[4] = 0; // divide timer reg
                 } else if addr == 0xFF07 {

@@ -29,6 +29,36 @@ impl Gpu {
         self.line = gb_mem.read(SCLINEP);
     }
 
+    fn set_mode(&mut self, gb_mem: &mut Mem, mode: GpuMode) {
+        self.mode = mode;
+        let i_mode = match self.mode {
+            GpuMode::HBLANK => 0,
+            GpuMode::VBLANK => 1,
+            GpuMode::OAM => 2,
+            GpuMode::VRAM => 3,
+        };
+        let gint = gb_mem.read(GPU_INTS) & 0xFC | i_mode;
+        gb_mem.write(GPU_INTS, gint);
+        if i_mode != 3 && gint & (1 << 3+i_mode) != 0 {
+            gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x2)
+        }
+
+    }
+
+    fn update_line(&mut self, gb_mem: &mut Mem, val: u8) {
+        self.line = val;
+        gb_mem.write(SCLINEP, self.line);
+        let gint = gb_mem.read(GPU_INTS);
+        if self.line == gb_mem.read(LYCP) {
+            if gint & 0x40 != 0 {
+                gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x2)
+            }
+            gb_mem.write(GPU_INTS, gint | 0x4);
+        } else {
+            gb_mem.write(GPU_INTS, gint & 0xFB)
+        }
+    }
+
     fn get_color(&self, gb_mem: &Mem, cn: u8, addr: u16) -> Color {
         let pallete = gb_mem.read(addr);
         let col = if cn <= 3 {
@@ -176,52 +206,34 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
     gb_gpu.clk += clks - gb_gpu.prev;
     gb_gpu.prev = clks;
     gb_gpu.update(gb_mem);
-    let mut int_f = gb_mem.read(PINT_F);
-    let mut ints = gb_mem.read(GPU_INTS);
 
     match &gb_gpu.mode {
         GpuMode::OAM => {
             if gb_gpu.clk >= 80 {
-                gb_gpu.mode = GpuMode::VRAM;
-                ints |= 0x3;
                 gb_gpu.clk %= 80;
+                gb_gpu.set_mode(gb_mem, GpuMode::VRAM);
             }
         }
 
         GpuMode::VRAM => {
             if gb_gpu.clk >= 172 {
                 gb_gpu.clk %= 172;
-                gb_gpu.mode = GpuMode::HBLANK;
-                if ints & 0x8 != 0 {
-                    int_f |= 0x2;
-                }
-
-                ints &= !0x7;
-                let lyc_int = ints & 0x40;
-                if gb_mem.read(LYCP) == gb_gpu.line {
-                    if lyc_int != 0 {
-                        int_f |= 0x2;
-                    }
-                    ints |= 0x7;
-                }
+                gb_gpu.scanline(gb_mem);
+                gb_gpu.set_mode(gb_mem, GpuMode::HBLANK);
             }
         }
 
         GpuMode::HBLANK => {
             if gb_gpu.clk >= 204 {
-                gb_gpu.scanline(gb_mem);
                 gb_gpu.clk %= 204;
-                gb_mem.write(SCLINEP, gb_gpu.line+1);
-                gb_gpu.line += 1;
+                gb_gpu.update_line(gb_mem, gb_gpu.line+1);
                 if gb_gpu.line == 144 {
-                    gb_gpu.mode = GpuMode::VBLANK;
-                    ints &= !0x3;
-                    ints |= 0x1;
-                    int_f |= 0x1;
+                    gb_gpu.set_mode(gb_mem, GpuMode::VBLANK);
+                    gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x1);
+                    gb_gpu.canvas.present();
+                    gb_gpu.frames += 1.;
                 } else {
-                    gb_gpu.mode = GpuMode::OAM;
-                    ints &= !0x3;
-                    ints |= 0x2;
+                    gb_gpu.set_mode(gb_mem, GpuMode::OAM);
                 }
             }
         }
@@ -229,22 +241,14 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
         GpuMode::VBLANK => {
             if gb_gpu.clk >= 456 {
                 gb_gpu.clk %= 456;
-                gb_mem.write(SCLINEP, gb_gpu.line+1);
                 gb_gpu.line += 1;
 
-                if gb_gpu.line == 154 {
-                    gb_gpu.mode = GpuMode::OAM;
-                    gb_gpu.canvas.present();
-                    gb_gpu.frames += 1.;
+                if gb_gpu.line >= 154 {
                     gb_gpu.line = 0;
-                    gb_mem.write(SCLINEP, 0);
-                    ints &= !0x3;
-                    ints |= 0x2;
+                    gb_gpu.set_mode(gb_mem, GpuMode::OAM);
                 }
+                gb_gpu.update_line(gb_mem, gb_gpu.line);
             }
         }
     }
-
-    gb_mem.write(GPU_INTS, ints);
-    gb_mem.write(PINT_F, int_f)
 }
