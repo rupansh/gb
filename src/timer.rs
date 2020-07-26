@@ -24,9 +24,8 @@ impl Timer {
         self.prev = cp_clks;
         self.div += tclk as u32;
         while self.div >= 256 {
-            let mut div = gb_mem.read(DIVTP);
-            div = div.wrapping_add(1);
-            gb_mem.write(DIVTP, div);
+            let div = gb_mem.read(DIVTP).wrapping_add(1);
+            gb_mem.io[4] = div;
             self.div -= 256;
         }
 
