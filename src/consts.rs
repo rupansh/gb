@@ -1,4 +1,3 @@
-extern crate sdl2;
 use sdl2::pixels::Color;
 
 // REG idxs
@@ -30,6 +29,7 @@ pub const SCXP: u16 = 0xFF43;
 pub const SCLINEP: u16 = 0xFF44;
 pub const LYCP: u16 = 0xFF45;
 pub const BG_PALLP: u16 = 0xFF47;
+pub const OBJPALBP: u16 = 0xFF48;
 pub const WYP: u16 = 0xFF4A;
 pub const WXP: u16 = 0xFF4B;
 

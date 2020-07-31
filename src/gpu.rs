@@ -1,12 +1,8 @@
-extern crate minifb;
-extern crate sdl2;
-
 use crate::consts::*;
 use crate::mem::Mem;
 
 use sdl2::pixels::Color;
-
-
+#[derive(PartialEq)]
 enum GpuMode {
     OAM,
     VRAM,
@@ -17,16 +13,60 @@ enum GpuMode {
 pub struct Gpu {
     mode: GpuMode,
     clk: u64,
-    line: u8,
     prev: u64,
     pub frames: f64,
     pub canvas: sdl2::render::Canvas<sdl2::video::Window>,
     pub ctx: sdl2::Sdl
 }
 
+
+impl Default for Gpu {
+    fn default() -> Gpu {
+        let ctx = sdl2::init().unwrap();
+        let mut gp = Gpu {
+            mode: GpuMode::OAM,
+            clk: 0,
+            frames: 0.,
+            prev: 0,
+            canvas: ctx.video().unwrap()
+                .window("Gameboy Emu", WIDTH as u32, HEIGHT as u32)
+                .position_centered()
+                .build().unwrap()
+                .into_canvas()
+                .build().unwrap(),
+            ctx: ctx
+        };
+        gp.canvas.set_draw_color(PAL_0);
+        gp.canvas.clear();
+        gp.canvas.present();
+        return gp;
+    }
+}
+
 impl Gpu {
-    pub fn update(&mut self, gb_mem: &Mem) {
-        self.line = gb_mem.read(SCLINEP);
+    fn lcd_on(&self, gb_mem: &Mem) -> bool {
+        return gb_mem.read(LCD_CTLP) & 0x80 != 0;
+    }
+
+    fn line(&self, gb_mem: &Mem) -> u8 {
+        return gb_mem.read(SCLINEP);
+    }
+
+    fn set_line(&mut self, gb_mem: &mut Mem, val: u8) {
+        gb_mem.write(SCLINEP, val);
+        let gint = gb_mem.read(GPU_INTS);
+        if val == self.lyc(gb_mem) {
+            if gint & 0x40 != 0  {
+                gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x2)
+            }
+            gb_mem.write(GPU_INTS, gint | 0x4);
+        } else {
+            gb_mem.write(GPU_INTS, gint & 0xFB)
+        }
+    }
+
+    fn lyc(&self, gb_mem: &Mem) -> u8 {
+        return gb_mem.read(LYCP);
     }
 
     fn set_mode(&mut self, gb_mem: &mut Mem, mode: GpuMode) {
@@ -41,21 +81,6 @@ impl Gpu {
         gb_mem.write(GPU_INTS, gint);
         if i_mode != 3 && gint & (1 << 3+i_mode) != 0 {
             gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x2)
-        }
-
-    }
-
-    fn update_line(&mut self, gb_mem: &mut Mem, val: u8) {
-        self.line = val;
-        gb_mem.write(SCLINEP, self.line);
-        let gint = gb_mem.read(GPU_INTS);
-        if self.line == gb_mem.read(LYCP) {
-            if gint & 0x40 != 0 {
-                gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x2)
-            }
-            gb_mem.write(GPU_INTS, gint | 0x4);
-        } else {
-            gb_mem.write(GPU_INTS, gint & 0xFB)
         }
     }
 
@@ -76,15 +101,17 @@ impl Gpu {
         };
     }
 
-    pub fn scanline(&mut self, gb_mem: &mut Mem) {
+    fn draw_line(&mut self, gb_mem: &mut Mem) {
         let val = gb_mem.read(LCD_CTLP);
+        let sline = self.line(gb_mem);
+        let mut bgpix: [bool; 160] = [false; 160];
         if val & 0x1 != 0 {
             let wy = gb_mem.read(WYP);
-            let sw = (val & 0x20 != 0) && wy <= self.line;
+            let sw = (val & 0x20 != 0) && wy <= sline;
             let y = if sw {
-                self.line - wy
+                sline - wy
             } else {
-                (gb_mem.read(SCYP) as u16 + self.line as u16) as u8
+                (gb_mem.read(SCYP) as u16 + sline as u16) as u8
             };
 
             for i in 0..160 {
@@ -116,11 +143,12 @@ impl Gpu {
 
                 let cb = (((x as i16 % 8) - 7)*(-1)) as u8;
 
-                let cn = ((((1 << cb) & h_tile != 0) as u8) << 1) | ((1 << cb) & l_tile != 0) as u8;
+                let cn = ((((1 << cb as u8) & h_tile != 0) as u8) << 1) | ((1 << cb as u8) & l_tile != 0) as u8;
 
                 let col = self.get_color(gb_mem, cn, BG_PALLP);
+                bgpix[i as usize] = col.r == 224;
                 self.canvas.set_draw_color(col);
-                self.canvas.draw_point(sdl2::rect::Point::new(i as i32,  self.line as i32)).unwrap_or_default();
+                self.canvas.draw_point(sdl2::rect::Point::new(i as i32,  sline as i32)).unwrap_or_default();
             }
         }
 
@@ -132,122 +160,88 @@ impl Gpu {
                 let x = gb_mem.read(addr + 1) as i32 - 8;
                 let tp = gb_mem.read(addr + 2) as u16 & (0xFF - s2x as u16);
                 let attr = gb_mem.read(addr + 3);
-
-                if attr & 0x80 != 0 {
-                    continue;
-                }
-
+                let bg_prio = attr & 0x80 != 0;
                 let fy = attr & 0x40 != 0;
                 let fx = attr & 0x20 != 0;
-                let sy = s2x as u8 * 8;
+                let sy = (s2x as u8 + 1) * 8;
 
-                if !(y <= self.line as i32 && (y+8) > self.line as i32) {
+                if !(y <= sline as i32 && (y+8) > sline as i32) {
                     continue
                 }
 
                 let line = if fy {
-                    (sy as i32 - (self.line as i32 - y) - 1) as u16
+                    (sy as i32 - (sline as i32 - y) - 1) as u16
                 } else {
-                    (self.line as i32 - y) as u16
+                    (sline as i32 - y) as u16
                 };
 
                 let sp = (0x8000 + tp as u32 * 16 + line as u32 *2) as u16;
                 let l_sprite = gb_mem.read(sp);
                 let h_sprite = gb_mem.read(sp + 1);
-
                 for j in (0..8).rev() {
                     let mut cb = j as i8;
                     if fx {
-                        cb = (cb - 7)*(-1)
+                        cb = 7 - cb
                     }
 
-                    let cn = ((((1 << cb) & h_sprite != 0) as u8) << 1) | ((1 << cb) & l_sprite != 0) as u8;
-                    let cp = (attr & 0x10 != 0) as u16 + 0xFF48;
+                    let cn = ((((1 << cb as u8) & h_sprite != 0) as u8) << 1) | ((1 << cb as u8) & l_sprite != 0) as u8;
+                    let cp = (attr & 0x10 != 0) as u16 + OBJPALBP;
                     let col = self.get_color(gb_mem, cn, cp);
 
-                    if col.r == 136 {
-                        continue
+                    if bg_prio && (val & 0x1) != 0 && !bgpix[(x + j) as usize] {
+                        continue;
                     }
 
-                    let pix = x.wrapping_add(7-j);
+                    let pix = (x as u8).wrapping_add(7-j as u8);
                     self.canvas.set_draw_color(col);
-                    self.canvas.draw_point(sdl2::rect::Point::new(pix as i32,  self.line as i32)).unwrap_or_default();
+                    self.canvas.draw_point(sdl2::rect::Point::new(pix as i32,  sline as i32)).unwrap_or_default();
                 }
             }
         }
-    }
-}
-
-impl Default for Gpu {
-    fn default() -> Gpu {
-        let ctx = sdl2::init().unwrap();
-        let mut gp = Gpu {
-            mode: GpuMode::OAM,
-            clk: 0,
-            line: 0,
-            frames: 0.,
-            prev: 0,
-            canvas: ctx.video().unwrap()
-                .window("Gameboy Emu", WIDTH as u32, HEIGHT as u32)
-                .position_centered()
-                .build().unwrap()
-                .into_canvas()
-                .build().unwrap(),
-            ctx: ctx
-        };
-        gp.canvas.set_draw_color(PAL_0);
-        gp.canvas.clear();
-        gp.canvas.present();
-        return gp;
     }
 }
 
 pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
+    if !gb_gpu.lcd_on(gb_mem) { return; }
+
     gb_gpu.clk += clks - gb_gpu.prev;
     gb_gpu.prev = clks;
-    gb_gpu.update(gb_mem);
 
-    match &gb_gpu.mode {
-        GpuMode::OAM => {
-            if gb_gpu.clk >= 80 {
-                gb_gpu.clk %= 80;
-                gb_gpu.set_mode(gb_mem, GpuMode::VRAM);
-            }
-        }
-
-        GpuMode::VRAM => {
-            if gb_gpu.clk >= 172 {
-                gb_gpu.clk %= 172;
-                gb_gpu.scanline(gb_mem);
-                gb_gpu.set_mode(gb_mem, GpuMode::HBLANK);
-            }
-        }
-
+    match gb_gpu.mode {
         GpuMode::HBLANK => {
             if gb_gpu.clk >= 204 {
-                gb_gpu.clk %= 204;
-                gb_gpu.update_line(gb_mem, gb_gpu.line+1);
-                if gb_gpu.line == 144 {
+                if gb_gpu.line(gb_mem) == 143 {
                     gb_gpu.set_mode(gb_mem, GpuMode::VBLANK);
-                    gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x1);
                     gb_gpu.canvas.present();
-                    gb_gpu.frames += 1.;
+                    gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x1);
                 } else {
                     gb_gpu.set_mode(gb_mem, GpuMode::OAM);
                 }
+                gb_gpu.set_line(gb_mem, gb_gpu.line(gb_mem) + 1);
+                gb_gpu.clk -= 204;
             }
-        }
-
+        },
         GpuMode::VBLANK => {
             if gb_gpu.clk >= 456 {
-                gb_gpu.clk %= 456;
-                gb_gpu.line += 1;
-
-                if gb_gpu.line >= 154 {
-                    gb_gpu.line = 0;
+                gb_gpu.clk -= 456;
+                gb_gpu.set_line(gb_mem, gb_gpu.line(gb_mem) + 1);
+                if gb_gpu.line(gb_mem) > 153 {
+                    gb_gpu.set_line(gb_mem, 0);
                     gb_gpu.set_mode(gb_mem, GpuMode::OAM);
                 }
-                gb_gpu.update_line(gb_mem, gb_gpu.line);
+            }
+        },
+        GpuMode::OAM => {
+            if gb_gpu.clk >= 80 {
+                gb_gpu.clk -= 80;
+                gb_gpu.set_mode(gb_mem, GpuMode::VRAM);
+            }
+        },
+        GpuMode::VRAM => {
+            if gb_gpu.clk >= 172 {
+                gb_gpu.clk -= 172;
+                gb_gpu.set_mode(gb_mem, GpuMode::HBLANK);
+                gb_gpu.draw_line(gb_mem);
             }
         }
     }

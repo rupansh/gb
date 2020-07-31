@@ -1,5 +1,3 @@
-extern crate sdl2;
-
 use crate::mem::Mem;
 use crate::consts::*;
 

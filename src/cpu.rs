@@ -6,7 +6,9 @@ pub struct Cpu {
     pub regs: [u8; 8], // Regs A-F, H,L
     pub sp: u16, // Stack pointer
     pub pc: u16, // Program Couter
-    pub ime: u8, // interrupt master enable
+    pub ime: bool, // interrupt master enable
+    pub ei_delay: bool, // Internal EI delay bool
+    pub di_delay: bool, // Internal DI delay bool
     pub alt_c: u8, // alt cycles
     pub halt: u8, // HALT mode
     pub stop: u8, // STOP mode
@@ -227,7 +229,7 @@ impl Cpu {
             self.pc = self.pc.wrapping_add(1);
             self.clk += 8;
             self.sp = (self.sp as i32 - 1) as u16;
-            gb_mem.write(self.sp, ((self.pc & 0xFF00) >> 8) as u8);
+            gb_mem.write(self.sp, (self.pc >> 8) as u8);
             self.clk += 4;
             self.sp = ((self.sp as i32 - 1)) as u16;
             gb_mem.write(self.sp, (self.pc & 0x00FF) as u8);
@@ -404,7 +406,9 @@ impl Default for Cpu {
             regs: [0; 8],
             sp: 0xFFFE,
             pc: 0x100,
-            ime: 0,
+            ime: false,
+            ei_delay: false,
+            di_delay: false,
             alt_c: 0,
             halt: 0,
             stop: 0,
@@ -421,33 +425,39 @@ impl Default for Cpu {
 
 pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
     let (int_e, int_f) = (gb_mem.read(PINT_E), gb_mem.read(PINT_F));
-    if gb_cpu.halt != 0 && (int_e & int_f) != 0 {
-        gb_cpu.halt = 0;
-        gb_cpu.clk += 4;
-    }
-    if gb_cpu.ime == 1 && (int_e & int_f) != 0 {
-        gb_cpu.ime = 0;
 
-        let n = (int_e & int_f).trailing_zeros();
-        if n < 5 {
-            gb_mem.write(PINT_F, int_f & !(1 << n));
 
-            gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
-            gb_mem.write(gb_cpu.sp, (gb_cpu.pc >> 8) as u8);
-            gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
-            gb_mem.write(gb_cpu.sp, gb_cpu.pc as u8);
-            gb_cpu.pc = 0x40 | ((n as u16) << 3);
-            gb_cpu.clk += 20;
-            return;
+    if (int_e & int_f) != 0 {
+        if gb_cpu.halt != 0 {
+            gb_cpu.halt = 0;
+            gb_cpu.clk += 4;
+        }
+        if gb_cpu.ime {
+            gb_cpu.ime = false;
+            let n = (int_e & int_f).trailing_zeros();
+            if n < 5 {
+                gb_mem.write(PINT_F, int_f & !(1 << n));
+    
+                gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
+                gb_mem.write(gb_cpu.sp, (gb_cpu.pc >> 8) as u8);
+                gb_cpu.sp = (gb_cpu.sp as i32 - 1) as u16;
+                gb_mem.write(gb_cpu.sp, (gb_cpu.pc & 0xFF) as u8);
+                gb_cpu.pc = 0x40 | ((n as u16) << 3);
+                gb_cpu.clk += 20;
+                return;
+            }
         }
     }
 
-    if gb_cpu.ime == 2 {
-        gb_cpu.ime = 1;
+    // Note that we set IME AFTER it has been checked for!
+    if gb_cpu.ei_delay {
+        gb_cpu.ime = true;
+        gb_cpu.ei_delay = false;
     }
-    
-    if gb_cpu.ime == 3 {
-        gb_cpu.ime = 0;
+
+    if gb_cpu.di_delay {
+        gb_cpu.ime = false;
+        gb_cpu.di_delay = false;
     }
 
     if gb_cpu.halt == 1 {
@@ -1926,7 +1936,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
             gb_cpu.sp = (gb_cpu.sp as u32 + 1) as u16;
             gb_cpu.clk += 4;
             gb_cpu.pc = tmp as u16;
-            gb_cpu.ime = 1;
+            gb_cpu.ime = true;
             gb_cpu.clk += 4;
         }
         0xDA => // JP C,nnnn - 4/3
@@ -2062,7 +2072,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         }
         0xF3 => // DI - 1
         {
-            gb_cpu.ime = 3;
+            gb_cpu.di_delay = true;
             gb_cpu.clk += 4;
         }
         0xF4 => // Undefined - *
@@ -2111,7 +2121,7 @@ pub fn cpu_cycle(gb_cpu: &mut Cpu, gb_mem: &mut mem::Mem) {
         }
         0xFB => // EI - 1
         {
-            gb_cpu.ime = 2;
+            gb_cpu.ei_delay = true;
             gb_cpu.clk += 4;
         }
         0xFC => // Undefined - *

@@ -36,7 +36,6 @@ impl Mem {
             0xE000..=0xFDFF => self.wram[addr & 0x1FFF] = val, // Work Ram copy
             0xFE00..=0xFE9F => self.sdata[addr - 0xFE00] = val, // Sprite Data/Object Mem
             0xFF00 => {
-                //self.io[0] = val & 0x30 | (self.io[0] & 0xCF);
                 self.io[0] = val;
                 self.input_update = true;
             }
@@ -45,6 +44,11 @@ impl Mem {
                     self.io[4] = 0; // divide timer reg
                 } else if addr == 0xFF07 {
                     self.io[7] = val & 0x7;
+                } else if addr == 0xFF46 {
+                    self.io[0x46] = val;
+                    for i in 0..160 {
+                        self.sdata[i] = self.read(((val as u16) << 8) + i as u16) // OAM DMA
+                    }
                 } else {
                     self.io[addr - 0xFF00] = val;
                 }
@@ -87,7 +91,6 @@ impl Default for Mem {
         m.io[0x47] = 0xFC;
         m.io[0x48] = 0xFF;
         m.io[0x49] = 0xFF;
-        m.io[0x4D] = 0xFF;
         return m;
     }
 }
