@@ -1,5 +1,3 @@
-use sdl2::pixels::Color;
-
 // REG idxs
 pub const A: usize = 0;
 pub const B: usize = 1;
@@ -34,10 +32,10 @@ pub const WYP: u16 = 0xFF4A;
 pub const WXP: u16 = 0xFF4B;
 
 // Pallete - https://lospec.com/palette-list/nintendo-gameboy-bgb
-pub const PAL_0: Color = Color::RGB(224, 248, 208);
-pub const PAL_1: Color = Color::RGB(136, 192, 112);
-pub const PAL_2: Color = Color::RGB(52, 104, 86);
-pub const PAL_3: Color = Color::RGB(8, 24, 32);
+pub const PAL_0: (u8, u8, u8) = (224, 248, 208);
+pub const PAL_1: (u8, u8, u8) = (136, 192, 112);
+pub const PAL_2: (u8, u8, u8) = (52, 104, 86);
+pub const PAL_3: (u8, u8, u8) = (8, 24, 32);
 
 // Input addr(s)
 pub const JOYP: u16 = 0xFF00;

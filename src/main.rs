@@ -1,5 +1,6 @@
 mod consts;
 mod cpu;
+mod frontend;
 mod input;
 mod gpu;
 mod mem;
@@ -10,8 +11,6 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::io::SeekFrom;
 
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
 
 fn load_rom(gb_mem: &mut mem::Mem, rom: &str) -> io::Result<()> {
     let mut r = File::open(rom)?;
@@ -49,18 +48,8 @@ fn gb_frame(gb_cpu: &mut cpu::Cpu, gb_gpu: &mut gpu::Gpu, gb_input: &mut input::
 
 fn gb_exec(gb_cpu: &mut cpu::Cpu, gb_gpu: &mut gpu::Gpu, gb_input: &mut input::Input, gb_timer: &mut timer::Timer, gb_mem: &mut mem::Mem) -> Result<(), String> {
     let st = std::time::Instant::now();
-    let mut event_pump = gb_gpu.ctx.event_pump().unwrap();
     while gb_cpu.stop == 0 {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                    gb_cpu.stop = 1;
-                },
-                Event::KeyDown { keycode: Some(k), .. } => { gb_input.key(gb_mem, k, true) },
-                Event::KeyUp { keycode: Some(k), .. } => gb_input.key(gb_mem, k, false),
-                _ => {}
-            }
-        }
+        gb_gpu.front.check_event(gb_cpu, gb_input, gb_mem);
         gb_frame(gb_cpu, gb_gpu, gb_input, gb_timer, gb_mem);
         gb_gpu.frames += 1.;
     }

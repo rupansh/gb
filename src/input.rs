@@ -1,26 +1,36 @@
 use crate::mem::Mem;
 use crate::consts::*;
 
-use sdl2::keyboard::Keycode;
-
 
 pub struct Input {
     r0: u8,
     r1: u8
 }
 
+pub enum KeyCode {
+    Start,
+    Select,
+    A,
+    B,
+    Up,
+    Down,
+    Left,
+    Right,
+    Uk
+}
+
 
 impl Input {
-    pub fn key(&mut self, gb_mem: &mut Mem, key: Keycode, kp: bool) {
+    pub fn key(&mut self, gb_mem: &mut Mem, key: KeyCode, kp: bool) {
         match key {
-            Keycode::Return => self.update_row(START, kp, false),
-            Keycode::Space => self.update_row(SELECT, kp, false),
-            Keycode::E => self.update_row(KEY_B, kp, false),
-            Keycode::Q => self.update_row(KEY_A, kp, false),
-            Keycode::S => self.update_row(KEY_D, kp, true),
-            Keycode::W => self.update_row(KEY_U, kp, true),
-            Keycode::A => self.update_row(KEY_L, kp, true),
-            Keycode::D => self.update_row(KEY_R, kp, true),
+            KeyCode::Start => self.update_row(START, kp, false),
+            KeyCode::Select => self.update_row(SELECT, kp, false),
+            KeyCode::B => self.update_row(KEY_B, kp, false),
+            KeyCode::A => self.update_row(KEY_A, kp, false),
+            KeyCode::Down => self.update_row(KEY_D, kp, true),
+            KeyCode::Up => self.update_row(KEY_U, kp, true),
+            KeyCode::Left => self.update_row(KEY_L, kp, true),
+            KeyCode::Right => self.update_row(KEY_R, kp, true),
             _ => {}
         };
     

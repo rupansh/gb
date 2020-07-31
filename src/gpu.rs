@@ -1,7 +1,7 @@
 use crate::consts::*;
+use crate::frontend::FrontEnd;
 use crate::mem::Mem;
 
-use sdl2::pixels::Color;
 #[derive(PartialEq)]
 enum GpuMode {
     OAM,
@@ -15,30 +15,19 @@ pub struct Gpu {
     clk: u64,
     prev: u64,
     pub frames: f64,
-    pub canvas: sdl2::render::Canvas<sdl2::video::Window>,
-    pub ctx: sdl2::Sdl
+    pub front: FrontEnd,
 }
 
 
 impl Default for Gpu {
     fn default() -> Gpu {
-        let ctx = sdl2::init().unwrap();
-        let mut gp = Gpu {
+        let gp = Gpu {
             mode: GpuMode::OAM,
             clk: 0,
             frames: 0.,
             prev: 0,
-            canvas: ctx.video().unwrap()
-                .window("Gameboy Emu", WIDTH as u32, HEIGHT as u32)
-                .position_centered()
-                .build().unwrap()
-                .into_canvas()
-                .build().unwrap(),
-            ctx: ctx
+            front: FrontEnd::default()
         };
-        gp.canvas.set_draw_color(PAL_0);
-        gp.canvas.clear();
-        gp.canvas.present();
         return gp;
     }
 }
@@ -84,7 +73,7 @@ impl Gpu {
         }
     }
 
-    fn get_color(&self, gb_mem: &Mem, cn: u8, addr: u16) -> Color {
+    fn get_color(&self, gb_mem: &Mem, cn: u8, addr: u16) -> (u8, u8, u8) {
         let pallete = gb_mem.read(addr);
         let col = if cn <= 3 {
             ((((1 << (1 + (2*cn))) & pallete != 0) as u8) << 1) | ((1 << (2*cn)) & pallete != 0) as u8
@@ -97,7 +86,7 @@ impl Gpu {
             1 => PAL_1,
             2 => PAL_2,
             3 => PAL_3,
-            _ => Color::BLACK,
+            _ => (0, 0, 0),
         };
     }
 
@@ -146,9 +135,9 @@ impl Gpu {
                 let cn = ((((1 << cb as u8) & h_tile != 0) as u8) << 1) | ((1 << cb as u8) & l_tile != 0) as u8;
 
                 let col = self.get_color(gb_mem, cn, BG_PALLP);
-                bgpix[i as usize] = col.r == 224;
-                self.canvas.set_draw_color(col);
-                self.canvas.draw_point(sdl2::rect::Point::new(i as i32,  sline as i32)).unwrap_or_default();
+                bgpix[i as usize] = col.0 == 224;
+                self.front.draw_pix(i as i32, sline as i32, col);
+
             }
         }
 
@@ -193,8 +182,7 @@ impl Gpu {
                     }
 
                     let pix = (x as u8).wrapping_add(7-j as u8);
-                    self.canvas.set_draw_color(col);
-                    self.canvas.draw_point(sdl2::rect::Point::new(pix as i32,  sline as i32)).unwrap_or_default();
+                    self.front.draw_pix(pix as i32, sline as i32, col);
                 }
             }
         }
@@ -212,7 +200,7 @@ pub fn gpu_cycle(gb_gpu: &mut Gpu, gb_mem: &mut Mem, clks: u64) {
             if gb_gpu.clk >= 204 {
                 if gb_gpu.line(gb_mem) == 143 {
                     gb_gpu.set_mode(gb_mem, GpuMode::VBLANK);
-                    gb_gpu.canvas.present();
+                    gb_gpu.front.render();
                     gb_mem.write(PINT_F, gb_mem.read(PINT_F) | 0x1);
                 } else {
                     gb_gpu.set_mode(gb_mem, GpuMode::OAM);
