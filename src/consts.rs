@@ -17,6 +17,7 @@ pub const FL_Z: u8 = 1 << 7; // Zero
 // W, H
 pub const WIDTH: usize = 160;
 pub const HEIGHT: usize = 144;
+pub const SCALE: usize = 4;
 
 // VRAM addrs
 pub const SPRITE_BASE: u16 = 0xFE00;

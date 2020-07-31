@@ -8,6 +8,7 @@ use sdl2::{
     event::Event,
     EventPump,
     keyboard::Keycode,
+    rect::Rect,
     render::Canvas,
 };
 
@@ -21,7 +22,7 @@ impl Default for FrontEnd {
         let ctx = sdl2::init().unwrap();
         let mut front = FrontEnd { 
             canvas: ctx.video().unwrap()
-                .window("Gameboy Emu", WIDTH as u32, HEIGHT as u32)
+                .window("Gameboy Emu", (WIDTH*SCALE) as u32, (HEIGHT*SCALE) as u32)
                 .position_centered()
                 .build().unwrap()
                 .into_canvas()
@@ -40,7 +41,10 @@ impl Default for FrontEnd {
 impl FrontEnd {
     pub fn draw_pix(&mut self, x: i32, y: i32, col: (u8, u8, u8)) {
         self.canvas.set_draw_color(col);
-        self.canvas.draw_point(sdl2::rect::Point::new(x, y)).unwrap_or_default();
+
+        let r = Rect::new(x*SCALE as i32, y*SCALE as i32, SCALE as u32, SCALE as u32);
+
+        self.canvas.fill_rect(r).unwrap_or_default();
     }
 
     pub fn render(&mut self) {
