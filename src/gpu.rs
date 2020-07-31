@@ -177,7 +177,7 @@ impl Gpu {
                     let cp = (attr & 0x10 != 0) as u16 + OBJPALBP;
                     let col = self.get_color(gb_mem, cn, cp);
 
-                    if bg_prio && (val & 0x1) != 0 && !bgpix[(x + j) as usize] {
+                    if bg_prio && (val & 0x1) != 0 && !bgpix[((x + j) % 160) as usize] {
                         continue;
                     }
 
