@@ -93,7 +93,8 @@ impl Gpu {
     fn draw_line(&mut self, gb_mem: &mut Mem) {
         let val = gb_mem.read(LCD_CTLP);
         let sline = self.line(gb_mem);
-        let mut bgpix: [bool; 160] = [false; 160];
+        let mut bgpix = [false; 160];
+
         if val & 0x1 != 0 {
             let wy = gb_mem.read(WYP);
             let sw = (val & 0x20 != 0) && wy <= sline;
@@ -122,7 +123,7 @@ impl Gpu {
                 let tp = if bgtile == 0x8000 {
                     bgtile + (tn as u16)*16
                 } else {
-                    bgtile + ((tn as i16 + 128)*16) as u16
+                    bgtile + ((tn as i8 as u16 + 128)*16) as u16
                 };
 
                 let l = (y as u16 % 8) * 2;
